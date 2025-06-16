@@ -23,7 +23,7 @@ class BatchImageResizer:
         self.root.minsize(800, 600)
 
         # Supported image formats
-        self.supported_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw']
+        self.supported_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng']
 
         # Create a queue for thread-safe UI updates
         self.queue = queue.Queue()
@@ -364,7 +364,7 @@ class BatchImageResizer:
         ])
 
         # List of raw image formats
-        raw_formats = ['.raw', '.cr2', '.cr3', '.nef', '.arw']
+        raw_formats = ['.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng']
         file_ext = os.path.splitext(input_path)[1].lower()
 
         try:
