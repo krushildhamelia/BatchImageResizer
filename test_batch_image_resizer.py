@@ -73,7 +73,7 @@ class TestBatchImageResizer(unittest.TestCase):
 
     def test_supported_formats(self):
         """Test that the app has the correct supported formats."""
-        expected_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw']
+        expected_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng']
         self.assertListEqual(self.app.supported_formats, expected_formats)
 
     @patch('tkinter.filedialog.askdirectory')

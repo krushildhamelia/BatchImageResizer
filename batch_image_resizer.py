@@ -281,7 +281,7 @@ class BatchImageResizer:
         ])
 
         # Create output directory
-        output_dir = os.path.join(folder_path, "output")
+        output_dir = os.path.join(folder_path, "output") if self.use_default_output.get() else self.output_path.get()
         os.makedirs(output_dir, exist_ok=True)
 
         # Process files in parallel
