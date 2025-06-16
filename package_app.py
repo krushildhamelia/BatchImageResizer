@@ -9,6 +9,8 @@ def main():
     using PyInstaller.
     """
     print("Packaging Batch Image Resizer as a standalone application...")
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
     
     # Check if PyInstaller is installed
     try:
@@ -23,7 +25,7 @@ def main():
     if system == "Windows":
         print("Detected Windows platform.")
         cmd = ["pyinstaller", "--onefile", "--windowed", "--name", "BatchImageResizer", 
-               "--icon=NONE", "batch_image_resizer.py"]
+               "batch_image_resizer.py"]
     else:
         print(f"Detected {system} platform.")
         cmd = ["pyinstaller", "--onefile", "--windowed", "--name", "BatchImageResizer", 
