@@ -73,6 +73,11 @@ class BatchImageResizer:
         ttk.Checkbutton(output_folder_frame, text="Use Default Output Directory", 
                         variable=self.use_default_output, command=self.toggle_output_path).pack(side=tk.TOP, padx=5, anchor=tk.W)
 
+        # Option to export different file types to separate folders
+        self.separate_file_types = tk.BooleanVar(value=False)
+        ttk.Checkbutton(output_folder_frame, text="Export Separate File Types to Separate Folders", 
+                        variable=self.separate_file_types).pack(side=tk.TOP, padx=5, anchor=tk.W)
+
         output_path_frame = ttk.Frame(output_folder_frame)
         output_path_frame.pack(fill=tk.X, pady=5)
 
@@ -302,7 +307,18 @@ class BatchImageResizer:
 
                 thread_index = i % thread_count
                 rel_path = os.path.relpath(file_path, folder_path)
-                output_path = os.path.join(output_dir, os.path.splitext(rel_path)[0] + ".jpg")
+
+                # Handle separate file types if enabled
+                if self.separate_file_types.get():
+                    output_ext = file_path.split(".")[-1].lower()
+                    # Create a subdirectory for this file type
+                    file_type_dir = os.path.join(output_dir, output_ext)
+                    os.makedirs(file_type_dir, exist_ok=True)
+                    # Set output path to the type-specific directory
+                    output_path = os.path.join(file_type_dir, os.path.splitext(rel_path)[0] + ".jpg")
+                else:
+                    # Standard output path (same as before)
+                    output_path = os.path.join(output_dir, os.path.splitext(rel_path)[0] + ".jpg")
 
                 # Create output subdirectories if needed
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -354,6 +370,31 @@ class BatchImageResizer:
                 messagebox.showinfo("Complete", f"Processing complete. {processed_count} files processed.")
             ])
             self.processing = False
+
+
+    def apply_exif_orientation(self, image):
+        try:
+            exif = image._getexif()
+            if exif is None:
+                return image
+
+            orientation = exif.get(274)  # 274 is the orientation tag
+            if orientation is None:
+                return image
+
+            # Rotation mappings
+            rotations = {
+                3: Image.ROTATE_180,
+                6: Image.ROTATE_270,
+                8: Image.ROTATE_90
+            }
+
+            if orientation in rotations:
+                return image.transpose(rotations[orientation])
+        except (AttributeError, KeyError, IndexError):
+            pass
+        return image
+
 
     def resize_image(self, input_path, output_path, target_pixels, quality, thread_index):
         # Update progress label
@@ -410,6 +451,7 @@ class BatchImageResizer:
             else:
                 # Process standard image file with PIL
                 with Image.open(input_path) as img:
+                    img = self.apply_exif_orientation(img)
                     # Convert to RGB if needed (for saving as JPG)
                     if img.mode != 'RGB':
                         img = img.convert('RGB')
