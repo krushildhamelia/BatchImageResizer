@@ -23,7 +23,7 @@ class BatchImageResizer:
         self.root.minsize(800, 600)
 
         # Supported image formats
-        self.supported_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng']
+        self.supported_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng']
 
         # Create a queue for thread-safe UI updates
         self.queue = queue.Queue()
