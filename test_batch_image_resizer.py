@@ -73,7 +73,7 @@ class TestBatchImageResizer(unittest.TestCase):
 
     def test_supported_formats(self):
         """Test that the app has the correct supported formats."""
-        expected_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng']
+        expected_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng']
         self.assertListEqual(self.app.supported_formats, expected_formats)
 
     @patch('tkinter.filedialog.askdirectory')
@@ -479,6 +479,167 @@ class TestBatchImageResizer(unittest.TestCase):
 
         # Check that the image was not resized (original used)
         mock_img.resize.assert_not_called()
+
+        # Check that the result is True
+        self.assertTrue(result)
+
+    def test_toggle_heic_options_available(self):
+        """Test toggle_heic_options when pillow_heif is available."""
+        # Setup
+        with patch('batch_image_resizer.HEIF_AVAILABLE', True):
+            # Create a new instance with HEIF_AVAILABLE = True
+            with patch('tkinter.ttk.LabelFrame'), \
+                 patch('tkinter.ttk.Frame'), \
+                 patch('tkinter.ttk.Label'), \
+                 patch('tkinter.StringVar'), \
+                 patch('tkinter.IntVar'), \
+                 patch('tkinter.BooleanVar'), \
+                 patch('tkinter.ttk.Entry'), \
+                 patch('tkinter.ttk.Button'), \
+                 patch('tkinter.ttk.Checkbutton'), \
+                 patch('tkinter.ttk.Scale'), \
+                 patch('tkinter.ttk.Progressbar'), \
+                 patch('tkinter.ttk.Combobox'):
+                app = BatchImageResizer(self.root)
+
+                # Mock the UI components
+                app.heic_checkbox = MagicMock()
+                app.heic_compression_frame = MagicMock()
+                app.heic_compression_scale = MagicMock()
+                app.heic_compression_label = MagicMock()
+                app.export_heic = MagicMock()
+
+                # Test with checkbox checked
+                app.export_heic.get.return_value = True
+                app.toggle_heic_options()
+
+                # Check that compression options are shown
+                app.heic_compression_frame.pack.assert_called_once()
+                app.heic_compression_scale.config.assert_called_once_with(state=tk.NORMAL)
+                app.heic_compression_label.config.assert_called_once_with(state=tk.NORMAL)
+
+                # Reset mocks
+                app.heic_compression_frame.reset_mock()
+                app.heic_compression_scale.reset_mock()
+                app.heic_compression_label.reset_mock()
+
+                # Test with checkbox unchecked
+                app.export_heic.get.return_value = False
+                app.toggle_heic_options()
+
+                # Check that compression options are hidden
+                app.heic_compression_frame.pack_forget.assert_called_once()
+                app.heic_compression_scale.config.assert_called_once_with(state=tk.DISABLED)
+                app.heic_compression_label.config.assert_called_once_with(state=tk.DISABLED)
+
+    def test_toggle_heic_options_unavailable(self):
+        """Test toggle_heic_options when pillow_heif is not available."""
+        # Setup
+        with patch('batch_image_resizer.HEIF_AVAILABLE', False):
+            # Create a new instance with HEIF_AVAILABLE = False
+            with patch('tkinter.ttk.LabelFrame'), \
+                 patch('tkinter.ttk.Frame'), \
+                 patch('tkinter.ttk.Label'), \
+                 patch('tkinter.StringVar'), \
+                 patch('tkinter.IntVar'), \
+                 patch('tkinter.BooleanVar'), \
+                 patch('tkinter.ttk.Entry'), \
+                 patch('tkinter.ttk.Button'), \
+                 patch('tkinter.ttk.Checkbutton'), \
+                 patch('tkinter.ttk.Scale'), \
+                 patch('tkinter.ttk.Progressbar'), \
+                 patch('tkinter.ttk.Combobox'):
+                app = BatchImageResizer(self.root)
+
+                # Mock the UI components
+                app.heic_checkbox = MagicMock()
+                app.heic_compression_frame = MagicMock()
+                app.heic_compression_scale = MagicMock()
+                app.heic_compression_label = MagicMock()
+                app.export_heic = MagicMock()
+
+                # Test with checkbox checked (should still hide options since HEIF is unavailable)
+                app.export_heic.get.return_value = True
+                app.toggle_heic_options()
+
+                # Check that compression options are hidden
+                app.heic_compression_frame.pack_forget.assert_called_once()
+                app.heic_compression_scale.config.assert_called_once_with(state=tk.DISABLED)
+                app.heic_compression_label.config.assert_called_once_with(state=tk.DISABLED)
+
+    @patch('batch_image_resizer.HEIF_AVAILABLE', True)
+    @patch('PIL.Image.open')
+    @patch('pillow_heif.from_pillow')
+    def test_resize_image_heic_export(self, mock_from_pillow, mock_image_open):
+        """Test the resize_image method with HEIC export."""
+        # Setup mocks
+        mock_img = MagicMock()
+        mock_img.mode = 'RGB'
+        mock_img.size = (2000, 2000)  # 4MP
+        mock_resized_img = MagicMock()
+        mock_img.resize.return_value = mock_resized_img
+        mock_image_open.return_value.__enter__.return_value = mock_img
+
+        mock_heif_file = MagicMock()
+        mock_from_pillow.return_value = mock_heif_file
+
+        self.app.progress_labels = [MagicMock()]
+        self.app.progress_bars = [MagicMock()]
+        self.app.export_heic = MagicMock(return_value=True)
+        self.app.heic_compression_value = MagicMock(return_value=7)
+
+        # Call the method with HEIC output
+        result = self.app.resize_image(
+            os.path.join(self.test_dir, 'test.jpg'),
+            os.path.join(self.test_dir, 'output.heic'),
+            1000000,  # 1MP (smaller than the 4MP image)
+            10,
+            0
+        )
+
+        # Check that the image was opened
+        mock_image_open.assert_called_once()
+
+        # Check that the image was resized
+        mock_img.resize.assert_called_once_with((1000, 1000), Image.LANCZOS)
+
+        # Check that the image was converted to HEIC
+        mock_from_pillow.assert_called_once_with(mock_resized_img)
+
+        # Check that the HEIC file was saved with the correct compression
+        mock_heif_file.save.assert_called_once()
+
+        # Check that the result is True
+        self.assertTrue(result)
+
+    @patch('batch_image_resizer.HEIF_AVAILABLE', False)
+    @patch('PIL.Image.open')
+    def test_resize_image_heic_unavailable(self, mock_image_open):
+        """Test the resize_image method with HEIC export when pillow_heif is not available."""
+        # Setup mocks
+        mock_img = MagicMock()
+        mock_img.mode = 'RGB'
+        mock_img.size = (2000, 2000)  # 4MP
+        mock_resized_img = MagicMock()
+        mock_img.resize.return_value = mock_resized_img
+        mock_image_open.return_value.__enter__.return_value = mock_img
+
+        self.app.progress_labels = [MagicMock()]
+        self.app.progress_bars = [MagicMock()]
+
+        # Even though we request HEIC output, it should fall back to JPEG
+        result = self.app.resize_image(
+            os.path.join(self.test_dir, 'test.jpg'),
+            os.path.join(self.test_dir, 'output.heic'),  # Request HEIC output
+            1000000,  # 1MP
+            10,
+            0
+        )
+
+        # Check that the image was saved as JPEG instead
+        mock_resized_img.save.assert_called_once()
+        args, kwargs = mock_resized_img.save.call_args
+        self.assertEqual(kwargs.get('format', 'JPEG'), 'JPEG')
 
         # Check that the result is True
         self.assertTrue(result)

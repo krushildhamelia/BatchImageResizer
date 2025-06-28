@@ -1,5 +1,6 @@
 import os
 import tkinter as tk
+from pickletools import optimize
 from tkinter import filedialog, ttk, messagebox
 from PIL import Image
 import concurrent.futures
@@ -14,6 +15,12 @@ try:
     RAWPY_AVAILABLE = True
 except ImportError:
     RAWPY_AVAILABLE = False
+
+try:
+    import pillow_heif
+    HEIF_AVAILABLE = True
+except ImportError:
+    HEIF_AVAILABLE = False
 
 class BatchImageResizer:
     def __init__(self, root):
@@ -123,6 +130,38 @@ class BatchImageResizer:
         thread_values = ["1", "2", "4", "8", "16"]
         thread_dropdown = ttk.Combobox(thread_frame, textvariable=self.thread_count, values=thread_values, width=5)
         thread_dropdown.pack(side=tk.LEFT, padx=5)
+
+        # HEIC export option
+        heic_frame = ttk.Frame(settings_frame)
+        heic_frame.pack(fill=tk.X, pady=5)
+
+        self.export_heic = tk.BooleanVar(value=False)
+        self.heic_checkbox = ttk.Checkbutton(heic_frame, text="Export as HEIC",
+                                             variable=self.export_heic,
+                                             command=self.toggle_heic_options,
+                                             state=tk.NORMAL if HEIF_AVAILABLE else tk.DISABLED)
+        self.heic_checkbox.pack(side=tk.LEFT, padx=5)
+
+        if not HEIF_AVAILABLE:
+            ttk.Label(heic_frame, text="(pillow_heif library not installed)").pack(side=tk.LEFT, padx=5)
+
+        # HEIC compression level
+        self.heic_compression_frame = ttk.Frame(settings_frame)
+        self.heic_compression_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(self.heic_compression_frame, text="HEIC Compression Level (1-10):").pack(side=tk.LEFT, padx=5)
+
+        self.heic_compression_value = tk.IntVar(value=6)
+        self.heic_compression_scale = ttk.Scale(self.heic_compression_frame, from_=1, to=10,
+                                                variable=self.heic_compression_value,
+                                                orient=tk.HORIZONTAL)
+        self.heic_compression_scale.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        self.heic_compression_label = ttk.Label(self.heic_compression_frame, textvariable=self.heic_compression_value, width=2)
+        self.heic_compression_label.pack(side=tk.LEFT, padx=5)
+
+        # Initially disable HEIC compression options
+        self.toggle_heic_options()
+
 
         # Action buttons
         button_frame = ttk.Frame(self.main_frame)
@@ -234,6 +273,19 @@ class BatchImageResizer:
             self.start_button.config(state=tk.NORMAL)
             self.cancel_button.config(state=tk.DISABLED)
 
+    def toggle_heic_options(self):
+        # Enable/disable HEIC compression options based on checkbox state
+        if self.export_heic.get() and HEIF_AVAILABLE:
+            # Enable HEIC compression options
+            self.heic_compression_frame.pack(fill=tk.X, pady=5)
+            self.heic_compression_scale.config(state=tk.NORMAL)
+            self.heic_compression_label.config(state=tk.NORMAL)
+        else:
+            # Disable HEIC compression options
+            self.heic_compression_frame.pack_forget()
+            self.heic_compression_scale.config(state=tk.DISABLED)
+            self.heic_compression_label.config(state=tk.DISABLED)
+
     def check_queue(self):
         try:
             while True:
@@ -308,17 +360,20 @@ class BatchImageResizer:
                 thread_index = i % thread_count
                 rel_path = os.path.relpath(file_path, folder_path)
 
+                # Determine output file extension
+                output_ext = ".heic" if self.export_heic.get() and HEIF_AVAILABLE else ".jpg"
+
                 # Handle separate file types if enabled
                 if self.separate_file_types.get():
-                    output_ext = file_path.split(".")[-1].lower()
+                    input_ext = file_path.split(".")[-1].lower()
                     # Create a subdirectory for this file type
-                    file_type_dir = os.path.join(output_dir, output_ext)
+                    file_type_dir = os.path.join(output_dir, input_ext)
                     os.makedirs(file_type_dir, exist_ok=True)
                     # Set output path to the type-specific directory
-                    output_path = os.path.join(file_type_dir, os.path.splitext(rel_path)[0] + ".jpg")
+                    output_path = os.path.join(file_type_dir, os.path.splitext(rel_path)[0] + output_ext)
                 else:
-                    # Standard output path (same as before)
-                    output_path = os.path.join(output_dir, os.path.splitext(rel_path)[0] + ".jpg")
+                    # Standard output path
+                    output_path = os.path.join(output_dir, os.path.splitext(rel_path)[0] + output_ext)
 
                 # Create output subdirectories if needed
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -407,6 +462,11 @@ class BatchImageResizer:
         # List of raw image formats
         raw_formats = ['.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng']
         file_ext = os.path.splitext(input_path)[1].lower()
+        output_ext = os.path.splitext(output_path)[1].lower()
+
+        # Check if we should export as HEIC
+        use_heic = output_ext == '.heic' and HEIF_AVAILABLE and self.export_heic.get()
+        heic_compression = self.heic_compression_value.get() * 10 if use_heic else -1
 
         try:
             # Check if this is a raw file
@@ -447,12 +507,21 @@ class BatchImageResizer:
                     self.queue.put(lambda: self.progress_bars[thread_index].config(value=70))
 
                     # Save the image
-                    resized_img.save(output_path, "JPEG", quality=quality*8)  # Scale quality to PIL's 1-95 range
+                    if use_heic:
+                        # Save as HEIC
+                        heif_file = pillow_heif.from_pillow(resized_img)
+                        heif_file.save(output_path, quality=heic_compression)
+                    else:
+                        # Save as JPEG
+                        resized_img.save(output_path, "JPEG",
+                                         quality=quality*8, # Scale quality to PIL's 1-95 range
+                                         optimize=True,
+                                         progressive=True)
             else:
                 # Process standard image file with PIL
                 with Image.open(input_path) as img:
                     img = self.apply_exif_orientation(img)
-                    # Convert to RGB if needed (for saving as JPG)
+                    # Convert to RGB if needed (for saving as JPG or HEIC)
                     if img.mode != 'RGB':
                         img = img.convert('RGB')
 
@@ -481,7 +550,13 @@ class BatchImageResizer:
                     self.queue.put(lambda: self.progress_bars[thread_index].config(value=70))
 
                     # Save the image
-                    resized_img.save(output_path, "JPEG", quality=quality*8)  # Scale quality to PIL's 1-95 range
+                    if use_heic:
+                        # Save as HEIC
+                        heif_file = pillow_heif.from_pillow(resized_img)
+                        heif_file.save(output_path, quality=heic_compression)
+                    else:
+                        # Save as JPEG
+                        resized_img.save(output_path, "JPEG", quality=quality*8)  # Scale quality to PIL's 1-95 range
 
             # Update progress
             self.queue.put(lambda: self.progress_bars[thread_index].config(value=100))
