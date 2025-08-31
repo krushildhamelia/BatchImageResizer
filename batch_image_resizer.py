@@ -18,19 +18,33 @@ except ImportError:
 
 try:
     import pillow_heif
+    # Configure pillow-heif to allow larger memory allocations
+    # Increase memory limit to 1GB (adjust as needed)
+    os.environ['PILLOW_HEIF_MAX_MEMORY'] = str(1024 * 1024 * 1024)  # 1GB
+    pillow_heif.register_heif_opener()
+
     HEIF_AVAILABLE = True
 except ImportError:
     HEIF_AVAILABLE = False
 
 class BatchImageResizer:
     def __init__(self, root):
+        # Increase PIL memory limits for large iPhone photos
+        Image.MAX_IMAGE_PIXELS = 1_000_000_000  # 1 billion pixels
+        pillow_heif.constants
+
+        # Enable pillow-heif optimizations
+        if HEIF_AVAILABLE:
+            pillow_heif.register_heif_opener()
+
         self.root = root
         self.root.title("Batch Image Resizer")
         self.root.geometry("800x600")
         self.root.minsize(800, 600)
 
         # Supported image formats
-        self.supported_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng']
+        self.supported_formats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng',
+                                  '.heic', '.heif', '.avif']
 
         # Create a queue for thread-safe UI updates
         self.queue = queue.Queue()
@@ -428,26 +442,40 @@ class BatchImageResizer:
 
 
     def apply_exif_orientation(self, image):
+        """Apply EXIF orientation to rotate image correctly."""
         try:
-            exif = image._getexif()
-            if exif is None:
-                return image
-
-            orientation = exif.get(274)  # 274 is the orientation tag
-            if orientation is None:
-                return image
-
-            # Rotation mappings
-            rotations = {
-                3: Image.ROTATE_180,
-                6: Image.ROTATE_270,
-                8: Image.ROTATE_90
-            }
-
-            if orientation in rotations:
-                return image.transpose(rotations[orientation])
-        except (AttributeError, KeyError, IndexError):
-            pass
+            # Use PIL's built-in ImageOps.exif_transpose for better compatibility
+            from PIL import ImageOps
+            return ImageOps.exif_transpose(image)
+        except Exception:
+            # Fallback to manual orientation handling
+            try:
+                exif = image._getexif()
+                if exif is None:
+                    return image
+    
+                orientation = exif.get(274)  # 274 is the orientation tag
+                if orientation is None:
+                    return image
+    
+                # Enhanced rotation mappings
+                rotations = {
+                    2: Image.FLIP_LEFT_RIGHT,
+                    3: Image.Transpose.ROTATE_180,
+                    4: Image.FLIP_TOP_BOTTOM,
+                    5: Image.Transpose.TRANSPOSE,
+                    6: Image.Transpose.ROTATE_270,
+                    7: Image.Transpose.TRANSVERSE,
+                    8: Image.Transpose.ROTATE_90
+                }
+    
+                if orientation in rotations:
+                    if orientation in [2, 4]:
+                        return image.transpose(rotations[orientation])
+                    else:
+                        return image.transpose(rotations[orientation])
+            except (AttributeError, KeyError, IndexError):
+                pass
         return image
 
 
@@ -476,94 +504,89 @@ class BatchImageResizer:
 
                 # Process raw file with rawpy
                 with rawpy.imread(input_path) as raw:
-                    # Convert to RGB image
-                    rgb = raw.postprocess()
-
-                    # Create PIL Image from numpy array
-                    img = Image.fromarray(rgb)
-
-                    # Get original dimensions
-                    width, height = img.size
-                    original_pixels = width * height
-
-                    # Calculate scaling factor
-                    scale_factor = math.sqrt(target_pixels / original_pixels)
-
-                    # Calculate new dimensions
-                    new_width = int(width * scale_factor)
-                    new_height = int(height * scale_factor)
-
-                    # Update progress
-                    self.queue.put(lambda: self.progress_bars[thread_index].config(value=30))
-
-                    # Only resize if the image is larger than the target
-                    if original_pixels > target_pixels:
-                        # Resize the image
-                        resized_img = img.resize((new_width, new_height), Image.LANCZOS)
-                    else:
-                        resized_img = img
-
-                    # Update progress
-                    self.queue.put(lambda: self.progress_bars[thread_index].config(value=70))
-
-                    # Save the image
-                    if use_heic:
-                        # Save as HEIC
-                        heif_file = pillow_heif.from_pillow(resized_img)
-                        heif_file.save(output_path, quality=heic_compression)
-                    else:
-                        # Save as JPEG
-                        resized_img.save(output_path, "JPEG",
-                                         quality=quality*8, # Scale quality to PIL's 1-95 range
-                                         optimize=True,
-                                         progressive=True)
+                    self.process_raw_image(heic_compression, output_path, quality, raw, target_pixels, use_heic, thread_index)
             else:
-                # Process standard image file with PIL
-                with Image.open(input_path) as img:
-                    img = self.apply_exif_orientation(img)
-                    # Convert to RGB if needed (for saving as JPG or HEIC)
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
-
-                    # Get original dimensions
-                    width, height = img.size
-                    original_pixels = width * height
-
-                    # Calculate scaling factor
-                    scale_factor = math.sqrt(target_pixels / original_pixels)
-
-                    # Calculate new dimensions
-                    new_width = int(width * scale_factor)
-                    new_height = int(height * scale_factor)
-
-                    # Update progress
-                    self.queue.put(lambda: self.progress_bars[thread_index].config(value=30))
-
-                    # Only resize if the image is larger than the target
-                    if original_pixels > target_pixels:
-                        # Resize the image
-                        resized_img = img.resize((new_width, new_height), Image.LANCZOS)
-                    else:
-                        resized_img = img
-
-                    # Update progress
-                    self.queue.put(lambda: self.progress_bars[thread_index].config(value=70))
-
-                    # Save the image
-                    if use_heic:
-                        # Save as HEIC
-                        heif_file = pillow_heif.from_pillow(resized_img)
-                        heif_file.save(output_path, quality=heic_compression)
-                    else:
-                        # Save as JPEG
-                        resized_img.save(output_path, "JPEG", quality=quality*8)  # Scale quality to PIL's 1-95 range
-
+                try:
+                    # Process standard image file with PIL
+                    with Image.open(input_path) as img:
+                        self.process_lossy_image(heic_compression, img, output_path, quality, target_pixels, use_heic, thread_index)
+                except Exception as e:
+                    heif_file = pillow_heif.open_heif(input_path)
+                    self.process_lossy_image(heic_compression, heif_file.to_pillow(), output_path, quality, target_pixels, use_heic, thread_index)
             # Update progress
             self.queue.put(lambda: self.progress_bars[thread_index].config(value=100))
 
             return True
         except Exception as e:
             raise e
+
+    def process_lossy_image(self, heic_compression, img, output_path, quality, target_pixels, use_heic, thread_index):
+        img = self.apply_exif_orientation(img)
+        # Convert to RGB if needed (for saving as JPG or HEIC)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        # Get original dimensions
+        width, height = img.size
+        original_pixels = width * height
+        # Calculate scaling factor
+        scale_factor = math.sqrt(target_pixels / original_pixels)
+        # Calculate new dimensions
+        new_width = int(width * scale_factor)
+        new_height = int(height * scale_factor)
+        # Update progress
+        self.queue.put(lambda: self.progress_bars[thread_index].config(value=30))
+        # Only resize if the image is larger than the target
+        if original_pixels > target_pixels:
+            # Resize the image
+            resized_img = img.resize((new_width, new_height), Image.LANCZOS)
+        else:
+            resized_img = img
+        # Update progress
+        self.queue.put(lambda: self.progress_bars[thread_index].config(value=70))
+        # Save the image
+        if use_heic:
+            # Save as HEIC
+            heif_file = pillow_heif.from_pillow(resized_img)
+            heif_file.save(output_path, quality=heic_compression)
+        else:
+            # Save as JPEG
+            resized_img.save(output_path, "JPEG", quality=quality * 8)  # Scale quality to PIL's 1-95 range
+
+    def process_raw_image(self, heic_compression, output_path, quality, raw, target_pixels, use_heic, thread_index):
+        # Convert to RGB image
+        rgb = raw.postprocess()
+        # Create PIL Image from numpy array
+        img = Image.fromarray(rgb)
+        # Get original dimensions
+        width, height = img.size
+        original_pixels = width * height
+        # Calculate scaling factor
+        scale_factor = math.sqrt(target_pixels / original_pixels)
+        # Calculate new dimensions
+        new_width = int(width * scale_factor)
+        new_height = int(height * scale_factor)
+        # Update progress
+        self.queue.put(lambda: self.progress_bars[thread_index].config(value=30))
+        # Only resize if the image is larger than the target
+        if original_pixels > target_pixels:
+            # Resize the image
+            resized_img = img.resize((new_width, new_height), Image.LANCZOS)
+        else:
+            resized_img = img
+        # Update progress
+        self.queue.put(lambda: self.progress_bars[thread_index].config(value=70))
+        # Save the image
+        if use_heic:
+            # Save as HEIC
+            heif_file = pillow_heif.from_pillow(resized_img)
+            heif_file.save(output_path, quality=heic_compression)
+        else:
+            # Save as JPEG
+            resized_img.save(output_path, "JPEG",
+                             quality=quality * 8,  # Scale quality to PIL's 1-95 range
+                             optimize=True,
+                             progressive=True)
+
 
 if __name__ == "__main__":
     root = tk.Tk()
